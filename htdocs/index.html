@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<!--#set var="app" val="AXIS 2420 Network Video Camera" -->
+<html>
+<head>
+<meta http-equiv="X-UA-Compatible"/>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<title>AXIS 2420 Network Camera Motion Demo</title>
+<script src="jquery-1.10.2.js"></script>
+<script src="jquery.ui.core.js"></script>
+<script src="jquery.ui.widget.js"></script>
+<script src="jquery.ui.tabs.js"></script>
+<script src="camera_services.1.0.0.js"></script>
+<link rel="stylesheet" type="text/css" href="./style.css" />
+</head>
+
+<body>
+
+<div class="header"> 
+<div class="logo"></div>
+<h1>AXIS 2420 Network Video Camera - World's First Edge Analytics</h1>
+</div>
+
+
+<br>
+<br>
+<br>
+<br>
+
+<div id="gallery-text" style="visibility: visible;">
+      <div class="gallery-text">
+      <p><h1>Motion JPEG Stream (704x576)</h1></p>
+
+<!-- Cut from here to the end of image display comment -->
+<!-- Note: If you do not see a JavaScript below in the view source window you must -->
+<!-- first save the html file from your browser, then open the saved -->
+<!-- file in a text editor, for instance Notepad.-->
+
+<SCRIPT LANGUAGE="JavaScript">
+
+  // Set the BaseURL to the url of your camera
+  // Example:  var BaseURL = "http://172.21.1.122/";
+  // Since this file is located inside the unit itself, no base url is specified here
+  var BaseURL = "http://" +"placeholder/";
+
+  // DisplayWidth specifies the displayed width of the image.
+  // You may have any number here, the effect will be horizontal 
+  // strech or shrink of the image
+  var DisplayWidth = "704";
+
+  // DisplayHeight specifies the displayed width of the image.
+  // You may have any number here, the effect will be vertical 
+  // strech or shrink of the image
+  var DisplayHeight = "576";
+
+  // This is the filepath to the video generating file inside the camera itself
+  var File = "axis-cgi/mjpg/video.cgi?resolution=704x576";
+
+  // No changes required below this point
+  output = "<IMG id=full-image SRC=\"";
+  output += BaseURL;
+  output += File;
+  output += "&dummy=garb\" HEIGHT=\"";
+  // The above dummy cgi-parameter helps some versions of NS
+  output += DisplayHeight;
+  output += "\" WIDTH=\"";
+  output += DisplayWidth;
+  output += "\" ALT=\"Moving Image Stream\">";
+
+  document.write(output);
+
+</SCRIPT>
+
+ <canvas id="canvas" 
+         style="position:absolute; left: 0px; top: 0px">
+      </canvas>
+</div>
+
+<div class="gallery-text">
+        <p><h1>Motion Status</h1><p>
+        <p><span id=Motion>Motion Not Detected</span></p>
+        <p><img src="img/2420_webpage.png"></p>
+</div>
+</div>
+
+<script>
+
+/** @file main.html
+ * @Brief HTML front for ACS POS (Square) Application
+ *
+ */
+
+var image = document.getElementById('full-image');
+var canvas = document.getElementById('canvas')
+var rect={}
+var current_canvas_rect={}
+
+var th_left = 0;
+var th_top = 0;
+var th_right = 0;
+var th_bottom = 0;
+
+var th_width = 0;
+var th_height = 0;
+
+var effective_image_width = 704;
+var effective_image_height = 576;
+
+fill_style_green  = "rgba(0,255,0,0.2)";
+strokeStyle_green = "rgba(0,255,0,0.6)";
+fill_style_red    = "rgba(255,0,0,0.2)";
+strokeStyle_red   = "rgba(255,0,0,0.6)";
+
+curr_fill_style   = fill_style_green;
+curr_stroke_style = strokeStyle_green;
+
+let legacy_cam_ip
+let legacy_cam_user
+let legacy_cam_password
+
+let strobe_ip
+let strobe_user
+let strobe_password
+
+/**
+ * Alert if App is non responsive.
+ *
+ * @return No return value.
+ */
+function noResponseError()
+{
+  //alert("No response from application.\n\nCheck if the application is running.");
+}
+
+function updateCurrentCanvasRect(){
+  current_canvas_rect.height = canvas.height
+  current_canvas_rect.width = canvas.width
+  current_canvas_rect.top = image.offsetTop
+  current_canvas_rect.left = image.offsetLeft
+}
+
+function initCanvas(){
+  canvas.height = image.height;
+  canvas.width = image.width;
+  canvas.style.top = image.offsetTop + "px";;
+  canvas.style.left = image.offsetLeft + "px";
+  updateCurrentCanvasRect();
+}
+
+function initRect(){
+  var ratio_w = canvas.width / effective_image_width;
+  var ratio_h = canvas.height / effective_image_height;
+  //BORDER OF SIZE 6!
+  rect.height = th_height*ratio_h-6
+  rect.width = th_width*ratio_w-6
+  rect.top = th_top*ratio_h+3
+  rect.left = th_left*ratio_w+3
+}
+
+function drawRectInCanvas()
+{
+  var ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.beginPath();
+  ctx.lineWidth = "6";
+  ctx.fillStyle = curr_fill_style;
+  ctx.strokeStyle = curr_stroke_style;
+  ctx.rect(rect.left, rect.top, rect.width, rect.height);
+  ctx.fill();
+  ctx.stroke();
+}
+
+/* Time hysteresis for the strobe. Don't send a new command until the previous has returned.
+ * The event in the D4100-E is set to strobe for 10 seconds. The CGI will return after 5 seconds,
+ * wait until at least that time before firing the strobe again.
+ */
+let strobe_hyst_active = false
+
+/**
+ * Motion Event subscription. The motiondetect CGI outputs a continuous stream of data,
+ * use JS Stream API to consume this asynchronously. This relies on a web server that does not
+ * buffer the CGI output. Hence Apache is recommended for this setup.
+ * This was tested on Windows+Apache2.4 with mostly Vanilla settings beyond allowing Python CGI script execution.
+ *
+ * @return No return value.
+ */
+function motionEvents()
+{  
+  const evtSource = new EventSource("../cgi-bin/motiondetect.py?cam_ip=" + legacy_cam_ip + "&user=" + legacy_cam_user + "&password=" + legacy_cam_password)
+
+  evtSource.onmessage = (event) => {console.log("Got untagged message")};
+  evtSource.onerror = (err) => {console.error("Motion Data subscription failed", err)};
+
+  /* Event subscription for motion data. CGI will spit out each line from the 2420 motion detect CGI
+   * as an event that will be picked up here. Set color of motion window and fire strobe if motion is deteted
+   */
+  evtSource.addEventListener("motiondata", (event) => {
+    let label = document.getElementById("Motion");
+    const obj = JSON.parse(event.data)
+    console.log("Got motion data: key= " + obj.key + ", level = " + obj.level + ", threshold = " + obj.threshold)
+
+    let level     = parseInt(obj.level)
+    let threshold = parseInt(obj.threshold)
+
+    if (level >= threshold) {
+       label.style.color = 'red';
+       label.innerHTML   = 'Motion Detected';
+
+       curr_fill_style = fill_style_red;
+       curr_stroke_style = strokeStyle_red;
+
+       fireStrobe()
+     } else {
+
+       /* Keep the motion window active for hysteresis to avoid flashing on/off */
+       if (!strobe_hyst_active) {
+         label.style.color = 'green';
+         label.innerHTML   = "Motion not Detected";
+         curr_fill_style = fill_style_green;
+         curr_stroke_style = strokeStyle_green;
+       }
+    }
+
+    drawRectInCanvas()
+  });
+}
+
+/**
+ * Main JS Execution funciton
+ *
+ * Read config file for settings
+ * Call next function that will get the motion window settings
+ * This will then initiate drawing the canvas and listenting to MD events
+ *
+ * @return No return value.
+ */
+function run()
+{
+  fetch("devices.conf")
+    .then((res) => res.text())
+    .then((text) => {
+      console.log(text);
+      const obj = JSON.parse(text);
+      console.log(obj.cam_ip)
+      legacy_cam_ip       = obj.cam_ip;
+      legacy_cam_user     = obj.cam_user;
+      legacy_cam_password = obj.cam_password;
+
+      strobe_ip       = obj.strobe_ip;  
+      strobe_user     = obj.strobe_user;
+      strobe_password = obj.strobe_password;
+
+      image.src = "http://" + legacy_cam_ip + "/axis-cgi/mjpg/video.cgi?resolution=704x576";
+
+      // Done here, now get the motion window parameters so window can be drawn and start subscribing to events
+      getMDParams();  
+      })
+  .catch((e) => console.error(e));
+}
+
+/**
+ * Callback for when document is ready.
+ *
+ * Start running JS
+ *
+ * @return No return value.
+ */
+$(document).ready(run);
+
+function fireStrobe()
+{
+  if (strobe_hyst_active) {
+    return;
+  }
+
+  strobe_hyst_active = true;
+
+  $.ajax({
+      type: "GET",
+      url: "../cgi-bin/vinput.py",
+      data: jQuery.param({ip: strobe_ip, user: strobe_user, password: strobe_password}),
+      dataType: "text",
+      cache: false,
+      success: function( responseData ) {
+        console.log(responseData)
+        strobe_hyst_active = false
+      },
+      error: function() {noResponseError; strobe_hyst_active = false;}
+    });
+}
+
+/**
+ * Get Motion Window Data from the 2420
+ *
+ * Currently will only read the first Window. This web page currently only handles one motion window
+ * After getting the settings, init the canvas and draw the motion window, then start subscribing to motion events.
+ *
+ * @return No return value.
+ */
+function getMDParams()
+{
+  $.ajax({
+      type: "GET",
+      url: "../cgi-bin/mdgetparam.py",
+      data: jQuery.param({cam_ip: legacy_cam_ip, user: legacy_cam_user, password: legacy_cam_password}),
+      dataType: "text",
+      cache: false,
+      success: function( responseData ) {
+        const obj  = JSON.parse(responseData)
+        let left   = parseInt(obj.left)
+        let top    = parseInt(obj.top)
+        let right  = parseInt(obj.right)
+        let bottom = parseInt(obj.bottom)
+
+        th_left   = Math.round((left / 10000) * 704)
+        th_top    = Math.round((top / 10000) * 576)
+        th_right  = Math.round((right / 10000) * 704)
+        th_bottom = Math.round((bottom / 10000) * 576)
+
+        th_width = th_right - th_left;
+        th_height = th_bottom - th_top;
+
+        console.log("Got Motion Window coordinates: " + th_left + ", " + th_top + ", " + th_right + ", " + th_bottom)
+
+        image.onload = drawRectInCanvas
+
+        initCanvas();
+        initRect();
+        drawRectInCanvas();
+        motionEvents();
+      },
+      error: noResponseError
+    });  
+}
+
+</script>
+
+</body>
+</html>

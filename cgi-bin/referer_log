@@ -1,0 +1,6 @@
+http://localhost:8000/cgi-bin/hello.bat -> /favicon.ico
+http://localhost:8000/ -> /style.css
+http://localhost:8000/ -> /cgi-bin/hello.bat
+http://localhost:8000/ -> /favicon.ico
+http://localhost:8000/ -> /www/bin/cgi-bin/hello.bat
+http://localhost:8000/ -> /favicon.ico
