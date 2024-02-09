@@ -141,10 +141,10 @@ Make sure HTTP is not disabled on the D4100-E (ACS sets HTTPS only)
 
 {"cam_ip": "192.168.2.192", 
  "cam_user": "root",
- "cam_password": "@xischicag0",
+ "cam_password": "pass",
  "strobe_ip": "192.168.3.178",
  "strobe_user": "root",
- "strobe_password": "@xischicag0"}
+ "strobe_password": "pass"}
 ###Configure strobe event
 
 Configure a light profile and event on the D4100-E strobe to flash a light for 10 seconds when VirtualInput 64 is activated.
